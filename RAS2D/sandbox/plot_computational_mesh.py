@@ -378,7 +378,70 @@ class MapScale:
                 painter.setFont(
                     qtg.QFont('Helvetica', font_size, qtg.QFont.Bold))
                 painter.drawText(point.x - font_size *
-                                 len(self.units)/2 - 10, point.y, self.units)
+                                 len(self.units)/2 - 0, point.y, self.units)
+                write_units = False
+
+            # Label all values, including right edge of last box
+            painter.drawText(point.x, point.y + 20, str(val))
+
+            # Increment counters
+            val += self.step
+            ci += 1
+
+class ColorScale:
+
+    def __init__(self, minval, maxval, step, mapx, mapy, scale_factor, units, height, gis_map, colors):
+        self.minval = minval
+        self.maxval = maxval
+        self.step = step
+        self.mapx = mapx
+        self.mapy = mapy
+        self.scale_factor = scale_factor
+        self.units = units
+        self.height = height
+        self.map = gis_map
+        self.colors = colors
+
+    def draw(self, painter):
+        ci = 0
+        val = self.minval
+        write_units = True
+        map_min = self.mapx
+        map_step = self.step * self.scale_factor
+        map_max = self.mapx + (self.maxval - self.minval) * self.scale_factor + map_step
+        for i in np.arange(map_min, map_max, map_step):
+            color = self.colors[ci % len(self.colors)]
+            brush = qtg.QBrush(color)
+            pen = qtg.QPen(black)
+            painter.setBrush(brush)
+            painter.setPen(pen)
+            point = Point(i, self.mapy, self.map)
+            dimensions = Dimensions(map_step, self.height, self.map)
+
+            # Draw scale (don't draw last scale box)
+            if i <= map_min + map_max - map_step:
+                painter.drawRect(point.x, point.y - dimensions.height,
+                                 dimensions.width, dimensions.height)
+
+            # Draw tick marks
+            brush = qtg.QBrush(black)
+            pen = qtg.QPen(black)
+            painter.setPen(pen)
+            painter.setBrush(brush)
+            if i <= map_min + map_max - map_step:
+                # Note, this draws downward on the figure
+                painter.drawRect(point.x, point.y, 0, 5)
+            else:
+                # Note, this draws downward on the figure
+                painter.drawRect(point.x - 0.5, point.y, 0, 5)
+
+            # Label units
+            if write_units:
+                font_size = 16
+                painter.setFont(
+                    qtg.QFont('Helvetica', font_size, qtg.QFont.Bold))
+                painter.drawText(point.x - font_size *
+                                 len(self.units)/2 - 0, point.y, self.units)
                 write_units = False
 
             # Label all values, including right edge of last box
@@ -982,9 +1045,13 @@ class RAS2D_HDF(qtw.QMainWindow):
         #                 line_color=white, marker_size=1, label=False)
         #     map_widget.add(node)
 
-        scale_colors = [crimson, tomato, orange, gold]
+        color_scale = ColorScale(0, 20, 5, 405000, 1800700, 100, 'depth (ft)', 75, gis_map, scale_colors)
+        map_widget.add(color_scale)
+
+        # map_scale_colors = [crimson, tomato, orange, gold]
+        map_scale_colors = [black, white]
         map_scale = MapScale(0, 1000, 250, 411250, 1800700,
-                             'meters', 50, gis_map, colors=scale_colors)
+                             'dist (ft)', 50, gis_map, colors=map_scale_colors)
         map_widget.add(map_scale)
 
         north_arrow = NorthArrow(
