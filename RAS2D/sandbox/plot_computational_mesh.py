@@ -98,6 +98,45 @@ colors = [firebrick, darkorange, orange, gold, goldenrod, darkgreen, seagreen, m
           purple, salmon, turquoise, darkturquoise, brown, darkslategray]
 
 
+def hex_to_rgb(value):
+    value = value.lstrip('#')
+    lv = len(value)
+    t = tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+    return rgb(t[0], t[1], t[2])
+
+
+def rgb(r, g, b):
+    return qtg.QColor(r, g, b)
+
+
+def get_color_index(value, vmin, vmax, ncolors):
+    cmin = 0
+    cmax = ncolors - 1
+    return int((value - vmin)/(vmax - vmin) * (cmax - cmin))
+
+
+def get_color(value, vmin, vmax, colors, step_type='linear'):
+    R, G, B = [], [], []
+    for c in colors:
+        rgb = c.getRgb()
+        R.append(rgb[0])
+        G.append(rgb[1])
+        B.append(rgb[2])
+    ncolors = len(colors)
+    cmin = 0
+    cmax = ncolors - 1
+    if step_type == 'step':
+        ci = int((value - vmin)/(vmax - vmin) * (cmax - cmin))
+    elif step_type == 'linear':
+        ci = (value - vmin)/(vmax - vmin) * (cmax - cmin)
+    else:
+        ci = (value - vmin)/(vmax - vmin) * (cmax - cmin)
+    r = np.interp(ci, np.arange(len(colors)), R)
+    g = np.interp(ci, np.arange(len(colors)), G)
+    b = np.interp(ci, np.arange(len(colors)), B)
+    return qtg.QColor(r, g, b)
+
+
 def savefig(widget, filename):
     widget.grab().save(filename)
 
@@ -274,14 +313,20 @@ class Node:
 
 class Text:
 
-    def __init__(self, x, y, text):
+    def __init__(self, x, y, text, gis_map, color=black, font='Helvetica', font_size=24):
         self.x = x
         self.y = y
         self.text = text
+        self.map = gis_map
+        self.text_color = color
+        self.font = font
+        self.font_size = font_size
 
     def draw(self, painter):
-        painter.setFont(qtg.QFont('Helvetica', 12))
-        painter.drawText(self.x, self.y, self.text)
+        point = Point(self.x, self.y, self.map)
+        painter.setPen(qtg.QPen(self.text_color, 1, qtc.Qt.SolidLine))
+        painter.setFont(qtg.QFont(self.font, self.font_size))
+        painter.drawText(point.x, point.y, self.text)
 
 
 class MapScale:
@@ -451,6 +496,15 @@ def read_ras_nodes(infile, skiprows=0):
     return nodes
 
 
+def read_values(infile):
+    f = open(infile, 'r')
+    lines = f.readlines()
+    values = []
+    for line in lines:
+        values.append(float(line.strip()))
+    return values
+
+
 class Dragon(qtw.QMainWindow):
 
     def __init__(self):
@@ -514,6 +568,19 @@ class Lake(qtw.QMainWindow):
         map_widget = MapWidget(self)
         self.setCentralWidget(map_widget)
 
+        # scale_colors = [crimson, tomato, orange, gold, green]
+        # scale_colors = [rgb(247, 252, 240), rgb(224, 243, 219), rgb(204, 235, 197), rgb(168, 221, 181), rgb(
+        #     123, 204, 196), rgb(78, 179, 211), rgb(43, 140, 190), rgb(8, 104, 172), rgb(8, 64, 129)]
+        # scale_colors = [rgb(255,247,251),rgb(236,226,240),rgb(208,209,230),rgb(166,189,219),rgb(103,169,207),rgb(54,144,192),rgb(2,129,138),rgb(1,108,89),rgb(1,70,54)]
+        # s = ["#f44321","#5091cd","#f9a541","#7ac143"]
+        # scale_colors = [hex_to_rgb(x) for x in s]
+        # scale_colors = [rgb(0, 163, 226), rgb(27, 165, 72), rgb(253, 200, 0), rgb(241, 134, 14), rgb(228, 27, 19)]
+        # s = ["#e6261f","#eb7532","#f7d038","#a3e048","#49da9a","#34bbe6","#4355db","#d23be7"]
+        # s = ["#e6261f","#eb7532","#f7d038","#a3e048","#49da9a","#34bbe6"]
+        # s = ["#f7fcf0","#e0f3db","#ccebc5","#a8ddb5","#7bccc4","#4eb3d3","#2b8cbe","#0868ac","#084081"]
+        s = ["#f5542e", "#f2c327", "#008b6e", "#00aede", "#0067ad"]
+        scale_colors = [hex_to_rgb(x) for x in s[::-1]]
+
         xmin = 0
         xmax = 800
         ymin = 100
@@ -530,12 +597,21 @@ class Lake(qtw.QMainWindow):
 
         elements = read_elements('lake_elements.txt')
         nodes = read_nodes('lake_nodes.txt')
+        values = read_values('lake_values.txt')
+        print('min: ', min(values))
+        print('max: ', max(values))
 
         for i, node_points in enumerate(elements):
             boundary = []
+
+            p = node_points[0]
+            v = values[p-1]
+            # idx = int(v * 20)
+            idx = get_color_index(v, -2, 3, len(scale_colors))
+
             for n in node_points:
                 boundary.append(nodes[n-1])
-            color = colors[i % len(colors)]
+            color = scale_colors[idx % len(scale_colors)]
             cell = Cell(str(i+1), boundary, gis_map, line_color=lightgray,
                         fill_color=color, text_color=black, label=False)
             map_widget.add(cell)
@@ -833,7 +909,7 @@ class RAS2D_ADCIRC(qtw.QMainWindow):
 
 class RAS2D_HDF(qtw.QMainWindow):
 
-    def __init__(self):
+    def __init__(self, timestep):
         super().__init__()
 
         window_width = 1500
@@ -857,9 +933,21 @@ class RAS2D_HDF(qtw.QMainWindow):
         import h5py
         f = h5py.File('Muncie.p04.hdf', 'r')
         # max value: 5773, shape(5765, 7)
-        elements_array = f['Geometry/2D Flow Areas/2D Interior Area/Cells FacePoint Indexes'].value
+        elements_array = f['Geometry/2D Flow Areas/2D Interior Area/Cells FacePoint Indexes'][()]
         # shape(5774, 2)
-        nodes_array = f['Geometry/2D Flow Areas/2D Interior Area/FacePoints Coordinate'].value
+        nodes_array = f['Geometry/2D Flow Areas/2D Interior Area/FacePoints Coordinate'][()]
+
+        depth = f['Results/Unsteady/Output/Output Blocks/Base Output/Unsteady Time Series/2D Flow Areas/2D Interior Area/Depth'][()
+                                                                                                                                 ][timestep]
+        node_x_vel = f['Results/Unsteady/Output/Output Blocks/Base Output/Unsteady Time Series/2D Flow Areas/2D Interior Area/Node X Vel'][()
+                                                                                                                                           ][timestep]
+        node_y_vel = f['Results/Unsteady/Output/Output Blocks/Base Output/Unsteady Time Series/2D Flow Areas/2D Interior Area/Node Y Vel'][()
+                                                                                                                                           ][timestep]
+        node_vel = np.sqrt(node_x_vel**2 + node_y_vel**2)
+
+        s = ["#f5542e", "#f2c327", "#008b6e", "#00aede", "#0067ad"]
+        scale_colors = [hex_to_rgb(x) for x in s[::-1]]
+
         elements = []
         nodes = []
         for i in range(len(elements_array)):
@@ -873,7 +961,18 @@ class RAS2D_HDF(qtw.QMainWindow):
                 if n > -1:
                     boundary.append(nodes[n])
             # color = colors[i % len(colors)]
-            color = lightseagreen
+            # color = lightseagreen
+
+            # Color cells by depth at specified time step, range 0 - 20
+            value = depth[i]
+            # ci = get_color_index(value, 0, 20, len(scale_colors))
+            # color = scale_colors[ci]
+            color = get_color(value, 0, 20, scale_colors)
+
+            # Color cells by velocity magnitude at specified time step, range 0.0 - 3.5
+            # value = node_vel[i]
+            # color = get_color(value, 0, 2.5, scale_colors)
+
             cell = Cell(str(i+1), boundary, gis_map, line_color=navy,
                         fill_color=color, text_color=black, label=False)
             map_widget.add(cell)
@@ -892,6 +991,11 @@ class RAS2D_HDF(qtw.QMainWindow):
             412250, 1804750, 50, 400, 150, 150, gis_map, fill_color=white, line_color=navy)
         map_widget.add(north_arrow)
 
+        # timestep_label = Text(404520, 1805490, 'Time step: %03d' % (timestep + 1))
+        timestep_label = Text(
+            404600, 1805300, 'Time step: %03d' % (timestep + 1), gis_map)
+        map_widget.add(timestep_label)
+
         map_border = MapBorder(gis_map)
         map_widget.add(map_border)
 
@@ -899,7 +1003,7 @@ class RAS2D_HDF(qtw.QMainWindow):
 
         self.resize(window_width, window_height)
         self.show()
-        savefig(map_widget, '2D_Interior_Area_HDF.png')
+        savefig(map_widget, '2D_Interior_Area_HDF_depth_%03d.png' % timestep)
 
 
 if __name__ == '__main__':
@@ -911,5 +1015,10 @@ if __name__ == '__main__':
     # mesh5 = BigCavity()
     # mesh6 = Web()
     # mesh7 = RAS2D_ADCIRC()
-    mesh8 = RAS2D_HDF()
+
+    # for i in range(30, 32):
+    for i in range(30, 175):
+        mesh8 = RAS2D_HDF(i)
+        mesh8.close()
+
     sys.exit(app.exec())
